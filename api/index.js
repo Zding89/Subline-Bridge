@@ -2,13 +2,6 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
-/**
- * Vercel Proxy - 极简统一风格版
- * 1. 纯白 Vercel 风格
- * 2. 移动端布局优化 (按钮自动换行，防止溢出)
- * 3. 增强复制功能兼容性
- * 4. 底部 GitHub 跳转
- */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -125,10 +118,21 @@ const commonStyle = `
         background-color: var(--bg);
         color: var(--fg);
         margin: 0;
-        min-height: 100vh;
+        height: 100vh; /* 强制占满全屏 */
         display: flex;
         flex-direction: column;
         overflow-x: hidden;
+    }
+
+    /* 居中容器 */
+    .center-wrapper {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center; /* 垂直居中 */
+        align-items: center;
+        width: 100%;
+        padding: 20px;
     }
 
     .container {
@@ -143,8 +147,8 @@ const commonStyle = `
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        height: 36px;
-        padding: 0 16px;
+        height: 32px; /* 稍微减小高度 */
+        padding: 0 10px; /* 减小内边距，防止移动端挤压 */
         font-size: 13px;
         font-weight: 500;
         border-radius: 6px;
@@ -156,25 +160,55 @@ const commonStyle = `
         text-decoration: none;
         white-space: nowrap;
         user-select: none;
-        -webkit-tap-highlight-color: transparent; /* 移除移动端点击高亮 */
+        -webkit-tap-highlight-color: transparent;
     }
     .btn:hover { color: var(--fg); border-color: var(--fg); }
-    .btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); height: 40px; font-size: 14px; }
     .btn-primary:hover { background: #333; color: #fff; }
     .btn-active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 
     /* 输入框 */
     input {
         width: 100%;
-        height: 48px;
-        padding: 0 16px;
-        font-size: 16px;
+        height: 44px;
+        padding: 0 12px;
+        font-size: 15px;
         border: 1px solid var(--gray-100);
         border-radius: 6px;
         transition: border-color 0.15s;
         margin-bottom: 16px;
     }
     input:focus { outline: none; border-color: var(--fg); }
+
+    /* 生成结果区域 */
+    .result-area {
+        margin-top: 20px;
+        border-top: 1px solid var(--gray-100);
+        padding-top: 20px;
+        display: none; /* 默认隐藏 */
+    }
+    .result-link {
+        background: var(--gray-50);
+        padding: 12px;
+        border-radius: 6px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--gray-900);
+        word-break: break-all; /* 自动换行 */
+        border: 1px solid var(--gray-100);
+        margin-bottom: 12px;
+        cursor: text;
+        max-height: 100px;
+        overflow-y: auto;
+    }
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+    }
+    .action-buttons .btn {
+        flex: 1;
+        height: 36px;
+    }
 
     /* 预览页特定样式 */
     .preview-header {
@@ -184,7 +218,7 @@ const commonStyle = `
         backdrop-filter: blur(8px);
         border-bottom: 1px solid var(--gray-100);
         z-index: 10;
-        padding: 16px 0;
+        padding: 12px 0;
         width: 100%;
     }
     
@@ -193,34 +227,33 @@ const commonStyle = `
         justify-content: space-between;
         align-items: center;
         gap: 12px;
-        flex-wrap: wrap; /* 允许换行 */
+        flex-wrap: wrap;
     }
 
     .title-group {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
         min-width: 0;
     }
 
-    .logo-text { font-weight: 700; font-size: 16px; letter-spacing: -0.5px; }
+    .logo-text { font-weight: 700; font-size: 15px; letter-spacing: -0.5px; }
     
     .url-text {
         color: var(--gray-500);
-        font-size: 13px;
+        font-size: 12px;
         font-family: var(--font-mono);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 300px;
+        max-width: 200px;
     }
 
     .toolbar {
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap; /* 关键：移动端自动换行 */
+        gap: 6px; /* 减小间距 */
+        flex-wrap: wrap;
         align-items: center;
-        /* 移除之前的 overflow-x: auto */
     }
 
     .code-wrapper {
@@ -235,12 +268,12 @@ const commonStyle = `
 
     .line-nums {
         text-align: right;
-        padding-right: 16px;
+        padding-right: 12px;
         color: var(--gray-200);
         user-select: none;
         border-right: 1px solid var(--gray-100);
-        margin-right: 16px;
-        min-width: 40px;
+        margin-right: 12px;
+        min-width: 36px;
         white-space: pre; 
     }
     .code-body {
@@ -252,11 +285,10 @@ const commonStyle = `
     /* 移动端适配 */
     @media (max-width: 600px) {
         .url-text { display: none; } 
-        .header-row { flex-direction: column; align-items: stretch; gap: 16px; }
+        .header-row { flex-direction: column; align-items: stretch; gap: 12px; }
         .title-group { justify-content: space-between; }
-        /* 移动端按钮弹性布局，使其易于点击 */
-        .toolbar { width: 100%; }
-        .btn { flex: 1 0 auto; text-align: center; } /* 按钮自适应宽度，必要时换行 */
+        .toolbar { width: 100%; justify-content: space-between; }
+        .btn { padding: 0 8px; font-size: 12px; } /* 进一步缩小移动端按钮 */
         .line-nums { min-width: 30px; font-size: 11px; }
         .code-body { font-size: 11px; }
     }
@@ -271,32 +303,109 @@ function renderHome() {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Vercel Proxy</title>
+        <title>Subline-Bridge</title>
         ${commonStyle}
+        <script>
+            function generateLink() {
+                const input = document.getElementById('urlInput');
+                const originalUrl = input.value.trim();
+                
+                if (!originalUrl) {
+                    input.focus();
+                    return;
+                }
+
+                // 构造当前站点的 API 地址
+                const host = window.location.host;
+                const protocol = window.location.protocol;
+                const proxyUrl = \`\${protocol}//\${host}/api?url=\${encodeURIComponent(originalUrl)}\`;
+
+                // 显示结果区域
+                document.getElementById('resultArea').style.display = 'block';
+                const linkBox = document.getElementById('generatedLink');
+                linkBox.textContent = proxyUrl;
+                
+                // 更新预览按钮链接
+                document.getElementById('previewBtn').onclick = () => {
+                    window.location.href = \`?url=\${encodeURIComponent(originalUrl)}\`;
+                };
+
+                // 滚动到底部
+                linkBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            function copyHomeLink() {
+                const text = document.getElementById('generatedLink').textContent;
+                copyToClipboard(text, document.getElementById('copyHomeBtn'));
+            }
+
+            // 通用复制函数
+            function copyToClipboard(text, btnElement) {
+                const doCopy = () => {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        return navigator.clipboard.writeText(text);
+                    }
+                    // 兼容旧版
+                    const textArea = document.createElement("textarea");
+                    textArea.value = text;
+                    textArea.style.position = "fixed";
+                    textArea.style.left = "-9999px";
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    return Promise.resolve();
+                };
+
+                doCopy().then(() => {
+                    const originalText = btnElement.innerText;
+                    btnElement.innerText = '已复制';
+                    btnElement.classList.add('btn-active');
+                    setTimeout(() => {
+                        btnElement.innerText = originalText;
+                        btnElement.classList.remove('btn-active');
+                    }, 2000);
+                }).catch(() => alert('复制失败，请手动选择复制'));
+            }
+        </script>
     </head>
     <body>
-        <div class="container" style="max-width: 600px; margin-top: 12vh;">
-            <div style="border: 1px solid var(--gray-100); border-radius: 12px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-                <div style="margin-bottom: 24px;">
-                    <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 12px 0;">Vercel Proxy</h1>
-                    <ul style="padding-left: 20px; color: var(--gray-500); font-size: 14px; margin: 0; line-height: 1.6;">
-                        <li>解决订阅链接连接被墙问题</li>
-                        <li>支持浏览器预览</li>
-                    </ul>
-                </div>
+        <div class="center-wrapper">
+            <div class="container" style="max-width: 600px;">
+                <div style="border: 1px solid var(--gray-100); border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                    <div style="margin-bottom: 24px;">
+                        <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 10px 0;">Subline-Bridge</h1>
+                        <ul style="padding-left: 20px; color: var(--gray-500); font-size: 13px; margin: 0; line-height: 1.6;">
+                            <li>解决订阅链接连接被墙问题</li>
+                            <li>支持浏览器预览与转换</li>
+                        </ul>
+                    </div>
 
-                <form onsubmit="event.preventDefault(); window.location.href='?url='+encodeURIComponent(this.u.value)">
-                    <input name="u" placeholder="在此粘贴原始订阅链接..." required autofocus autocomplete="off">
-                    <button type="submit" class="btn btn-primary" style="width: 100%; height: 44px; font-size: 14px;">生成并预览</button>
-                </form>
-            </div>
-            <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200); display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <span>Powered by Zding</span>
-                <a href="https://github.com/Zding89/Subline-Bridge" target="_blank" style="color: inherit; display: flex; text-decoration: none; align-items: center;" title="View on GitHub">
-                    <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
-                    </svg>
-                </a>
+                    <form onsubmit="event.preventDefault(); generateLink()">
+                        <input id="urlInput" name="u" placeholder="在此粘贴原始订阅链接..." required autofocus autocomplete="off">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">转换</button>
+                    </form>
+
+                    <!-- 生成结果区域 -->
+                    <div id="resultArea" class="result-area">
+                        <div style="font-size: 12px; color: var(--gray-500); margin-bottom: 6px;">转换后的订阅链接：</div>
+                        <div id="generatedLink" class="result-link" onclick="const range=document.createRange();range.selectNodeContents(this);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);"></div>
+                        <div class="action-buttons">
+                            <button id="copyHomeBtn" type="button" class="btn" onclick="copyHomeLink()">复制</button>
+                            <button id="previewBtn" type="button" class="btn">预览</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <span>Powered by Zding</span>
+                    <a href="https://github.com/Zding89/Subline-Bridge" target="_blank" style="color: inherit; display: flex; text-decoration: none; align-items: center;" title="View on GitHub">
+                        <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                        </svg>
+                    </a>
+                </div>
             </div>
         </div>
     </body>
@@ -355,14 +464,10 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
                 copyToClipboard(url).then(() => {
                     const originalText = btn.innerText;
                     btn.innerText = '已复制';
-                    btn.style.borderColor = '#000';
-                    btn.style.color = '#000';
-                    btn.style.background = '#f0f0f0';
+                    btn.classList.add('btn-active');
                     setTimeout(() => {
                         btn.innerText = originalText;
-                        btn.style.borderColor = '';
-                        btn.style.color = '';
-                        btn.style.background = '';
+                        btn.classList.remove('btn-active');
                     }, 2000);
                 }).catch(err => {
                     alert('复制失败，请手动复制浏览器地址栏');
@@ -385,7 +490,7 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
                     <a href="${baseUrl}&ua=clash" class="btn ${currentUA==='clash'?'btn-active':''}">Clash</a>
                     <a href="${baseUrl}&ua=singbox" class="btn ${currentUA==='singbox'?'btn-active':''}">Sing-box</a>
                     <a href="${baseUrl}&ua=base64" class="btn ${currentUA==='base64'?'btn-active':''}">Base64</a>
-                    <!-- 移除内联样式，依靠 CSS flex gap -->
+                    <!-- 复制按钮 -->
                     <button id="copyBtn" onclick="copyLink()" class="btn">复制链接</button>
                 </div>
             </div>
