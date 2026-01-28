@@ -3,15 +3,18 @@ const http = require('http');
 const { URL } = require('url');
 
 /**
- * Vercel Proxy - 终极版
- * 特性：无长度限制、代码高亮框、智能格式诱导、工具直连
+ * Vercel Proxy - Vercel Style Edition
+ * 1. 默认 Clash 格式
+ * 2. Vercel 极简黑白风格 UI
+ * 3. 增加一键复制功能
  */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
     const queryUrl = currentUrl.searchParams.get('url');
-    // 获取用户想伪装的客户端类型 (clash, singbox, base64)
-    const targetUA = currentUrl.searchParams.get('ua') || 'default'; 
+    
+    // 默认行为改为 'clash'
+    const targetUA = currentUrl.searchParams.get('ua') || 'clash'; 
     
     let targetUrl = '';
 
@@ -42,30 +45,28 @@ module.exports = (req, res) => {
     // --- 2. 智能 User-Agent 伪装逻辑 ---
     const clientUA = req.headers['user-agent'] || '';
     
-    // 判断是否为浏览器访问 (用来决定是显示网页还是直接返回数据)
-    // 如果 URL 里带了 &browser=true 强制显示网页
+    // 判断是否为浏览器访问
     const isBrowser = (clientUA.match(/(Mozilla|Chrome|Safari|Edge)/i) && 
                       !clientUA.match(/(Clash|Shadowrocket|Quantumult|Stash|V2Ray|Sing-Box)/i));
     
-    // 构造发给机场的 Headers
+    // 构造 Headers
     const proxyHeaders = {};
     proxyHeaders['Accept'] = '*/*';
     proxyHeaders['Connection'] = 'close';
 
-    // === 核心：决定用什么身份去请求机场 ===
+    // === 核心：身份伪装 ===
     if (isBrowser) {
-        // 如果是浏览器在预览，根据用户点击的按钮来伪装
-        if (targetUA === 'clash') {
-            proxyHeaders['User-Agent'] = 'Clash/Meta'; // 诱导返回 YAML
+        // 浏览器预览模式：根据 selection 伪装
+        if (targetUA === 'base64') {
+            proxyHeaders['User-Agent'] = '2rayNG/1.8.5'; // Base64
         } else if (targetUA === 'singbox') {
-            proxyHeaders['User-Agent'] = 'Sing-Box/1.0'; // 诱导返回 JSON
+            proxyHeaders['User-Agent'] = 'Sing-Box/1.0'; // JSON
         } else {
-            // 默认伪装成 v2rayNG (通常返回 Base64)
-            proxyHeaders['User-Agent'] = '2rayNG/1.8.5'; 
+            // 默认 (clash)
+            proxyHeaders['User-Agent'] = 'Clash/Meta';   // YAML
         }
     } else {
-        // === 关键点：工具直连 ===
-        // 如果是 Clash 软件在访问，直接透传它的 UA，确保机场识别正确
+        // 工具直连模式：直接透传工具的 UA
         proxyHeaders['User-Agent'] = clientUA;
     }
 
@@ -74,46 +75,36 @@ module.exports = (req, res) => {
     
     const proxyReq = requestModule.get(targetUrl, {
         headers: proxyHeaders,
-        rejectUnauthorized: false // 忽略 SSL 错误
+        rejectUnauthorized: false
     }, (proxyRes) => {
         
-        // --- 场景 A: 浏览器预览 (返回漂亮的 HTML) ---
+        // --- 场景 A: 浏览器预览 (返回 Vercel 风格 HTML) ---
         if (isBrowser) {
             let rawData = [];
-            
-            proxyRes.on('data', (chunk) => { 
-                rawData.push(chunk); 
-            });
-            
+            proxyRes.on('data', (chunk) => { rawData.push(chunk); });
             proxyRes.on('end', () => {
-                // 拼接 Buffer，防止中文乱码
                 const fullBuffer = Buffer.concat(rawData);
                 const content = fullBuffer.toString('utf8');
                 
                 res.statusCode = 200;
                 res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA));
+                // 传入 host 用于生成完整的复制链接
+                res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA, req.headers.host));
             });
             return;
         }
 
-        // --- 场景 B: 订阅工具直连 (返回纯净数据) ---
+        // --- 场景 B: 工具直连 (透传数据) ---
         res.statusCode = proxyRes.statusCode;
-        // 转发所有重要的 Header (Content-Type, Disposition 等)
         Object.keys(proxyRes.headers).forEach(key => {
-            // 排除可能引起传输错误的头
             if (!['content-encoding', 'transfer-encoding', 'content-length'].includes(key)) {
                 res.setHeader(key, proxyRes.headers[key]);
             }
         });
-        // 允许跨域
         res.setHeader('Access-Control-Allow-Origin', '*');
-        
-        // 直接管道转发，不做任何处理，保证源汁源味
         proxyRes.pipe(res);
     });
 
-    // 错误处理
     proxyReq.on('error', (e) => {
         res.statusCode = 502;
         res.end(`Proxy Error: ${e.message}`);
@@ -122,7 +113,115 @@ module.exports = (req, res) => {
     proxyReq.end();
 };
 
-// --- 首页 HTML ---
+// --- Vercel 风格 CSS ---
+const vercelStyle = `
+<style>
+    :root {
+        --geist-foreground: #000;
+        --geist-background: #fff;
+        --accents-1: #fafafa;
+        --accents-2: #eaeaea;
+        --accents-3: #999;
+        --accents-4: #888;
+        --accents-5: #666;
+        --accents-8: #000;
+        --success: #0070f3;
+        --error: #ee0000;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        --font-mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    body {
+        font-family: var(--font-sans);
+        background-color: var(--geist-background);
+        color: var(--geist-foreground);
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+    }
+    .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 24px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .card {
+        border: 1px solid var(--accents-2);
+        border-radius: 8px;
+        padding: 24px;
+        margin-top: 40px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        transition: box-shadow 0.2s;
+    }
+    .card:hover {
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    }
+    h1, h2 { letter-spacing: -0.05em; margin-top: 0; }
+    h1 { font-size: 32px; font-weight: 700; }
+    p { color: var(--accents-5); line-height: 1.6; }
+    
+    input {
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 16px;
+        border: 1px solid var(--accents-2);
+        border-radius: 6px;
+        margin: 16px 0;
+        box-sizing: border-box;
+        transition: border-color 0.15s ease;
+    }
+    input:focus { outline: none; border-color: var(--accents-8); }
+    
+    .btn {
+        background: var(--geist-foreground);
+        color: var(--geist-background);
+        border: 1px solid var(--geist-foreground);
+        padding: 0 24px;
+        height: 40px;
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+    }
+    .btn:hover { background: transparent; color: var(--geist-foreground); }
+    .btn-secondary {
+        background: transparent;
+        color: var(--accents-5);
+        border: 1px solid var(--accents-2);
+    }
+    .btn-secondary:hover { color: var(--geist-foreground); border-color: var(--geist-foreground); }
+    .btn-active {
+        background: var(--geist-foreground);
+        color: var(--geist-background);
+        border-color: var(--geist-foreground);
+    }
+    .btn-active:hover { color: var(--geist-background); background: #333; }
+
+    .header { border-bottom: 1px solid var(--accents-2); padding: 16px 0; background: rgba(255,255,255,0.8); backdrop-filter: blur(5px); position: sticky; top: 0; z-index: 10; }
+    .header-content { display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-weight: 800; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+    .status-badge { font-size: 12px; padding: 4px 8px; border-radius: 100px; font-weight: 600; }
+    .status-200 { background: #d7f5fc; color: #0070f3; }
+    .status-error { background: #fceceb; color: #ee0000; }
+
+    .editor-wrapper { flex: 1; display: flex; background: #000; color: #fff; overflow: hidden; }
+    .line-numbers { padding: 20px 16px; text-align: right; color: #444; font-family: var(--font-mono); font-size: 13px; border-right: 1px solid #333; user-select: none; }
+    .code-area { flex: 1; padding: 20px; overflow: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; white-space: pre; }
+    
+    .feature-list { list-style: none; padding: 0; margin: 20px 0; }
+    .feature-list li { display: flex; align-items: center; margin-bottom: 12px; color: var(--accents-5); font-size: 14px; }
+    .feature-list li::before { content: "✓"; margin-right: 10px; color: var(--geist-foreground); font-weight: bold; }
+</style>
+`;
+
+// --- 主页 HTML (Vercel 风格) ---
 function renderHome() {
     return `
     <!DOCTYPE html>
@@ -130,48 +229,40 @@ function renderHome() {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Vercel 订阅代理</title>
-        <style>
-            body { background: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-            .card { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 90%; max-width: 480px; }
-            h2 { margin-top: 0; color: #1a1a1a; text-align: center; }
-            input { width: 100%; padding: 12px; margin: 20px 0; border: 2px solid #e1e4e8; border-radius: 8px; box-sizing: border-box; font-size: 16px; transition: border-color 0.2s; }
-            input:focus { border-color: #0070f3; outline: none; }
-            button { background: #0070f3; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.2s; }
-            button:hover { background: #0051a2; }
-            .note { margin-top: 20px; font-size: 13px; color: #666; line-height: 1.5; background: #fafafa; padding: 10px; border-radius: 6px; }
-        </style>
+        <title>Vercel Proxy</title>
+        ${vercelStyle}
     </head>
     <body>
-        <div class="card">
-            <h2>🚀 订阅加速代理</h2>
-            <form onsubmit="event.preventDefault(); window.location.href='?url='+encodeURIComponent(this.u.value)">
-                <input name="u" placeholder="在此粘贴原始订阅链接..." required>
-                <button type="submit">生成代理链接</button>
-            </form>
-            <div class="note">
-                <strong>✨ 功能说明：</strong><br>
-                1. 自动解决机场屏蔽/墙问题<br>
-                2. 支持浏览器预览不同格式 (Clash/Base64)<br>
-                3. 工具访问时自动透传原始内容
+        <div class="container" style="display: flex; flex-direction: column; justify-content: center; min-height: 80vh; max-width: 500px;">
+            <div class="card">
+                <h1>Vercel Proxy</h1>
+                <p>一个极简、高速的订阅代理服务。</p>
+                
+                <ul class="feature-list">
+                    <li>解决订阅链接连接被墙问题</li>
+                    <li>支持浏览器预览 (自动识别格式)</li>
+                    <li>增加一键复制订阅链接功能</li>
+                </ul>
+
+                <form onsubmit="event.preventDefault(); window.location.href='?url='+encodeURIComponent(this.u.value)">
+                    <input name="u" placeholder="在此粘贴原始订阅链接..." required autofocus>
+                    <button type="submit" class="btn" style="width: 100%;">生成代理链接</button>
+                </form>
             </div>
+            <p style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--accents-3);">Powered by Vercel Edge Network</p>
         </div>
     </body>
     </html>`;
 }
 
-// --- 仪表盘 HTML (代码框风格) ---
-function renderDashboard(targetUrl, status, content, currentUA) {
+// --- 预览页 HTML (Vercel 风格) ---
+function renderDashboard(targetUrl, status, content, currentUA, host) {
     const isOk = status >= 200 && status < 300;
-    const statusColor = isOk ? '#10b981' : '#ef4444';
     
-    // 计算当前 URL (不带 ua 参数)
+    // 生成干净的代理链接 (不带 UA 参数，让工具自动处理)
+    const cleanProxyUrl = `https://${host}/api?url=${encodeURIComponent(targetUrl)}`;
+    
     const baseUrl = `?url=${encodeURIComponent(targetUrl)}`;
-    
-    // 按钮样式
-    const btnClass = "padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.2); margin-right: 8px; transition: all 0.2s;";
-    const activeBtn = "background: #0070f3; color: white; border-color: #0070f3;";
-    const inactiveBtn = "background: rgba(255,255,255,0.05); color: #888; hover:background: rgba(255,255,255,0.1);";
 
     return `
     <!DOCTYPE html>
@@ -179,48 +270,53 @@ function renderDashboard(targetUrl, status, content, currentUA) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>订阅预览</title>
-        <style>
-            body { margin: 0; padding: 0; background: #0d1117; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; height: 100vh; display: flex; flex-direction: column; }
-            .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; flex-shrink: 0; }
-            .status-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
-            .url-display { font-size: 14px; color: #8b949e; word-break: break-all; }
-            .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; background: ${statusColor}; }
-            
-            .toolbar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-            .btn-group { display: flex; }
-            
-            .editor-container { flex: 1; overflow: hidden; position: relative; display: flex; }
-            .line-numbers { background: #0d1117; border-right: 1px solid #30363d; padding: 16px 10px; text-align: right; color: #484f58; font-size: 13px; line-height: 1.5; user-select: none; min-width: 40px; overflow: hidden; }
-            .code-content { flex: 1; padding: 16px; overflow: auto; font-size: 13px; line-height: 1.5; white-space: pre; color: #e6edf3; tab-size: 4; }
-            
-            /* 滚动条样式 */
-            ::-webkit-scrollbar { width: 10px; height: 10px; }
-            ::-webkit-scrollbar-track { background: #0d1117; }
-            ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
-            ::-webkit-scrollbar-thumb:hover { background: #484f58; }
-        </style>
+        <title>Preview - ${status}</title>
+        ${vercelStyle}
+        <script>
+            function copyLink() {
+                const url = "${cleanProxyUrl}";
+                navigator.clipboard.writeText(url).then(() => {
+                    const btn = document.getElementById('copyBtn');
+                    const originalText = btn.innerText;
+                    btn.innerText = '已复制 ✓';
+                    btn.style.background = '#000';
+                    btn.style.color = '#fff';
+                    setTimeout(() => {
+                        btn.innerText = originalText;
+                        btn.style.background = '';
+                        btn.style.color = '';
+                    }, 2000);
+                });
+            }
+        </script>
     </head>
     <body>
         <div class="header">
-            <div class="status-bar">
-                <div class="url-display">Target: ${targetUrl}</div>
-                <div class="badge">Status: ${status}</div>
-            </div>
-            <div class="toolbar">
-                <span style="font-size: 13px; color: #8b949e;">预览格式 (模拟UA): </span>
-                <div class="btn-group">
-                    <a href="${baseUrl}&ua=default" style="${btnClass} ${currentUA==='default' || !currentUA ? activeBtn : inactiveBtn}">Base64 (默认)</a>
-                    <a href="${baseUrl}&ua=clash" style="${btnClass} ${currentUA==='clash' ? activeBtn : inactiveBtn}">Clash</a>
-                    <a href="${baseUrl}&ua=singbox" style="${btnClass} ${currentUA==='singbox' ? activeBtn : inactiveBtn}">Sing-box</a>
+            <div class="container header-content">
+                <div class="logo">
+                    <svg height="20" viewBox="0 0 116 100" fill="#000"><path fill-rule="evenodd" clip-rule="evenodd" d="M57.5 0L115 100H0L57.5 0Z" /></svg>
+                    <span style="margin-left: 12px;">Proxy Preview</span>
+                    <span class="status-badge ${isOk ? 'status-200' : 'status-error'}" style="margin-left: 10px;">${status}</span>
                 </div>
-                <span style="flex:1"></span>
-                <span style="font-size: 13px; color: #484f58;">大小: ${(content.length/1024).toFixed(2)} KB</span>
+                <div style="display: flex; gap: 8px;">
+                    <a href="${baseUrl}&ua=clash" class="btn btn-secondary ${currentUA==='clash'?'btn-active':''}" style="height: 32px; font-size: 12px;">Clash</a>
+                    <a href="${baseUrl}&ua=singbox" class="btn btn-secondary ${currentUA==='singbox'?'btn-active':''}" style="height: 32px; font-size: 12px;">Sing-box</a>
+                    <a href="${baseUrl}&ua=base64" class="btn btn-secondary ${currentUA==='base64'?'btn-active':''}" style="height: 32px; font-size: 12px;">Base64</a>
+                    <button id="copyBtn" onclick="copyLink()" class="btn" style="height: 32px; font-size: 12px; margin-left: 8px;">复制链接</button>
+                </div>
+            </div>
+            <div class="container" style="margin-top: 12px; font-size: 12px; color: var(--accents-5); display: flex; justify-content: space-between;">
+                <span style="font-family: var(--font-mono); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;">${targetUrl}</span>
+                <span>Size: ${(content.length/1024).toFixed(2)} KB</span>
             </div>
         </div>
         
-        <div class="editor-container">
-            <div class="code-content">${content.replace(/</g, '&lt;')}</div>
+        <div class="editor-wrapper">
+            <div class="line-numbers">
+                ${Array.from({length: Math.min(100, content.split('\n').length)}, (_, i) => i + 1).join('\n')}
+                ${content.split('\n').length > 100 ? '...' : ''}
+            </div>
+            <div class="code-area">${content.replace(/</g, '&lt;')}</div>
         </div>
     </body>
     </html>`;
