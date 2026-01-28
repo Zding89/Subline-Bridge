@@ -1,143 +1,227 @@
+const https = require('https');
+const http = require('http');
+const { URL } = require('url');
+
 /**
- * Vercel Serverless Function 代理 (Node.js 版)
- * 核心：必须放在 api/index.js 路径下！
+ * Vercel Proxy - 终极版
+ * 特性：无长度限制、代码高亮框、智能格式诱导、工具直连
  */
-
-// 这是一个标准的 Node.js 函数，兼容性最强
-export default async function handler(req, res) {
-    // 1. 解析目标 URL
-    // 支持两种方式：
-    // A. ?url=https://...
-    // B. /api/https://... (路径参数)
+module.exports = (req, res) => {
+    // --- 1. 参数解析 ---
+    const currentUrl = new URL(req.url, `http://${req.headers.host}`);
+    const queryUrl = currentUrl.searchParams.get('url');
+    // 获取用户想伪装的客户端类型 (clash, singbox, base64)
+    const targetUA = currentUrl.searchParams.get('ua') || 'default'; 
     
-    let targetUrl = req.query.url;
+    let targetUrl = '';
 
-    // 如果 query 里没有，尝试从路径里解析
-    // req.url 可能是 "/api/index?url=..." 也可能是 "/api/sub.com/..."
-    if (!targetUrl) {
-        // 移除 "/api/" 前缀，剩下的就是目标
-        // 注意：Vercel 的 rewrite 规则可能会影响 req.url，这里做个简单处理
-        const pathPart = req.url.replace(/^\/api\//, '').replace(/^\//, '');
-        
-        // 如果路径里包含实质内容 (不是空的或者仅仅是 index)
-        if (pathPart && pathPart !== 'index' && !pathPart.startsWith('?')) {
-            targetUrl = pathPart;
-            // 把 query 参数补回去 (比如 ?token=123)
-            const queryIndex = req.url.indexOf('?');
-            if (queryIndex !== -1) {
-                targetUrl += req.url.substring(queryIndex);
-            }
+    // 优先使用 ?url= 参数
+    if (queryUrl) {
+        targetUrl = queryUrl;
+    } else {
+        // 尝试从路径解析
+        const path = currentUrl.pathname.replace(/^\/api\//, '').replace(/^\//, '');
+        if (path && path !== 'favicon.ico') {
+            targetUrl = path + currentUrl.search;
         }
     }
 
-    // 2. 如果还是没有 URL，返回帮助页面
+    // 如果没有目标 URL，返回首页
     if (!targetUrl) {
+        res.statusCode = 200;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(200).send(renderHelpPage());
+        res.end(renderHome());
+        return;
     }
 
-    // 3. 自动补全 https
-    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    // 补全 https
+    if (!targetUrl.startsWith('http')) {
         targetUrl = 'https://' + targetUrl;
     }
 
-    // 4. 构造请求头
-    const originalUA = req.headers['user-agent'] || '';
-    const isBrowser = originalUA.match(/(Mozilla|Chrome|Safari|Edge|Opera)/i) && !originalUA.match(/(Clash|Shadowrocket|Quantumult|Stash|Surge|V2Ray)/i);
-    const wantRaw = req.query.raw === 'true';
-
-    // 准备发送给目标服务器的 Headers
-    const fetchHeaders = new Headers();
+    // --- 2. 智能 User-Agent 伪装逻辑 ---
+    const clientUA = req.headers['user-agent'] || '';
     
-    // 伪装 User-Agent
-    const PROXY_UA = 'Clash/Meta';
+    // 判断是否为浏览器访问 (用来决定是显示网页还是直接返回数据)
+    // 如果 URL 里带了 &browser=true 强制显示网页
+    const isBrowser = (clientUA.match(/(Mozilla|Chrome|Safari|Edge)/i) && 
+                      !clientUA.match(/(Clash|Shadowrocket|Quantumult|Stash|V2Ray|Sing-Box)/i));
+    
+    // 构造发给机场的 Headers
+    const proxyHeaders = {};
+    proxyHeaders['Accept'] = '*/*';
+    proxyHeaders['Connection'] = 'close';
+
+    // === 核心：决定用什么身份去请求机场 ===
     if (isBrowser) {
-        fetchHeaders.set('User-Agent', PROXY_UA);
+        // 如果是浏览器在预览，根据用户点击的按钮来伪装
+        if (targetUA === 'clash') {
+            proxyHeaders['User-Agent'] = 'Clash/Meta'; // 诱导返回 YAML
+        } else if (targetUA === 'singbox') {
+            proxyHeaders['User-Agent'] = 'Sing-Box/1.0'; // 诱导返回 JSON
+        } else {
+            // 默认伪装成 v2rayNG (通常返回 Base64)
+            proxyHeaders['User-Agent'] = '2rayNG/1.8.5'; 
+        }
     } else {
-        fetchHeaders.set('User-Agent', originalUA || PROXY_UA);
+        // === 关键点：工具直连 ===
+        // 如果是 Clash 软件在访问，直接透传它的 UA，确保机场识别正确
+        proxyHeaders['User-Agent'] = clientUA;
     }
 
-    // 简单的反爬虫绕过
-    fetchHeaders.set('Accept', '*/*');
-    try {
-        const u = new URL(targetUrl);
-        fetchHeaders.set('Host', u.host);
-    } catch(e) {}
-
-    // 5. 发起请求 (Node 18+ 原生 fetch)
-    try {
-        const response = await fetch(targetUrl, {
-            method: 'GET',
-            headers: fetchHeaders,
-            redirect: 'follow'
-        });
-
-        // 6. 浏览器预览模式 (Dashboard)
-        if (isBrowser && !wantRaw) {
-            const bodyText = await response.text();
-            res.setHeader('Content-Type', 'text/html; charset=utf-8');
-            return res.status(200).send(renderDashboard(targetUrl, response.status, bodyText, isBrowser));
+    // --- 3. 发起请求 ---
+    const requestModule = targetUrl.startsWith('https') ? https : http;
+    
+    const proxyReq = requestModule.get(targetUrl, {
+        headers: proxyHeaders,
+        rejectUnauthorized: false // 忽略 SSL 错误
+    }, (proxyRes) => {
+        
+        // --- 场景 A: 浏览器预览 (返回漂亮的 HTML) ---
+        if (isBrowser) {
+            let rawData = [];
+            
+            proxyRes.on('data', (chunk) => { 
+                rawData.push(chunk); 
+            });
+            
+            proxyRes.on('end', () => {
+                // 拼接 Buffer，防止中文乱码
+                const fullBuffer = Buffer.concat(rawData);
+                const content = fullBuffer.toString('utf8');
+                
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA));
+            });
+            return;
         }
 
-        // 7. 代理模式 (直接返回流)
-        // 复制响应头
-        response.headers.forEach((value, key) => {
-            // 排除可能导致乱码或错误的头
-            if (!['content-encoding', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) {
-                res.setHeader(key, value);
+        // --- 场景 B: 订阅工具直连 (返回纯净数据) ---
+        res.statusCode = proxyRes.statusCode;
+        // 转发所有重要的 Header (Content-Type, Disposition 等)
+        Object.keys(proxyRes.headers).forEach(key => {
+            // 排除可能引起传输错误的头
+            if (!['content-encoding', 'transfer-encoding', 'content-length'].includes(key)) {
+                res.setHeader(key, proxyRes.headers[key]);
             }
         });
-
         // 允许跨域
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.status(response.status);
+        
+        // 直接管道转发，不做任何处理，保证源汁源味
+        proxyRes.pipe(res);
+    });
 
-        // 将流导向 response
-        const arrayBuffer = await response.arrayBuffer();
-        return res.send(Buffer.from(arrayBuffer));
+    // 错误处理
+    proxyReq.on('error', (e) => {
+        res.statusCode = 502;
+        res.end(`Proxy Error: ${e.message}`);
+    });
 
-    } catch (error) {
-        return res.status(502).send(`Proxy Error: ${error.message}`);
-    }
-}
+    proxyReq.end();
+};
 
-// --- 简单的 HTML 界面 ---
-function renderHelpPage() {
+// --- 首页 HTML ---
+function renderHome() {
     return `
-    <html>
-    <body style="font-family: sans-serif; padding: 50px; text-align: center; background: #f5f5f5;">
-        <div style="background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto;">
-            <h2 style="color: #333;">Vercel 订阅代理</h2>
-            <input type="text" id="url" placeholder="https://机场.com/api/..." style="width: 100%; padding: 12px; margin: 20px 0; border: 1px solid #ddd; border-radius: 5px;">
-            <button onclick="go()" style="background: black; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; width: 100%;">生成代理链接</button>
-            <p style="margin-top: 20px; font-size: 12px; color: #666;">自动识别浏览器/Clash请求</p>
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Vercel 订阅代理</title>
+        <style>
+            body { background: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+            .card { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 90%; max-width: 480px; }
+            h2 { margin-top: 0; color: #1a1a1a; text-align: center; }
+            input { width: 100%; padding: 12px; margin: 20px 0; border: 2px solid #e1e4e8; border-radius: 8px; box-sizing: border-box; font-size: 16px; transition: border-color 0.2s; }
+            input:focus { border-color: #0070f3; outline: none; }
+            button { background: #0070f3; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.2s; }
+            button:hover { background: #0051a2; }
+            .note { margin-top: 20px; font-size: 13px; color: #666; line-height: 1.5; background: #fafafa; padding: 10px; border-radius: 6px; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h2>🚀 订阅加速代理</h2>
+            <form onsubmit="event.preventDefault(); window.location.href='?url='+encodeURIComponent(this.u.value)">
+                <input name="u" placeholder="在此粘贴原始订阅链接..." required>
+                <button type="submit">生成代理链接</button>
+            </form>
+            <div class="note">
+                <strong>✨ 功能说明：</strong><br>
+                1. 自动解决机场屏蔽/墙问题<br>
+                2. 支持浏览器预览不同格式 (Clash/Base64)<br>
+                3. 工具访问时自动透传原始内容
+            </div>
         </div>
-        <script>
-            function go() {
-                const url = document.getElementById('url').value;
-                if(url) window.location.href = '?url=' + encodeURIComponent(url);
-            }
-        </script>
     </body>
     </html>`;
 }
 
-function renderDashboard(target, status, content, isBrowser) {
+// --- 仪表盘 HTML (代码框风格) ---
+function renderDashboard(targetUrl, status, content, currentUA) {
     const isOk = status >= 200 && status < 300;
-    const color = isOk ? 'green' : 'red';
+    const statusColor = isOk ? '#10b981' : '#ef4444';
     
-    // 简单的转义防止 XSS
-    const safeContent = content.replace(/</g, '&lt;').substring(0, 3000000);
+    // 计算当前 URL (不带 ua 参数)
+    const baseUrl = `?url=${encodeURIComponent(targetUrl)}`;
+    
+    // 按钮样式
+    const btnClass = "padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.2); margin-right: 8px; transition: all 0.2s;";
+    const activeBtn = "background: #0070f3; color: white; border-color: #0070f3;";
+    const inactiveBtn = "background: rgba(255,255,255,0.05); color: #888; hover:background: rgba(255,255,255,0.1);";
 
     return `
-    <html>
-    <body style="background: #111; color: #fff; font-family: monospace; padding: 20px;">
-        <div style="border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px;">
-            <h3 style="margin: 0;">目标: ${target}</h3>
-            <p>状态: <strong style="color: ${color}">${status}</strong> ${isBrowser ? '(已伪装UA)' : ''}</p>
-            <a href="?url=${encodeURIComponent(target)}&raw=true" style="color: #3b82f6;">查看原始数据 (Raw)</a>
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>订阅预览</title>
+        <style>
+            body { margin: 0; padding: 0; background: #0d1117; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; height: 100vh; display: flex; flex-direction: column; }
+            .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; flex-shrink: 0; }
+            .status-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+            .url-display { font-size: 14px; color: #8b949e; word-break: break-all; }
+            .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; background: ${statusColor}; }
+            
+            .toolbar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+            .btn-group { display: flex; }
+            
+            .editor-container { flex: 1; overflow: hidden; position: relative; display: flex; }
+            .line-numbers { background: #0d1117; border-right: 1px solid #30363d; padding: 16px 10px; text-align: right; color: #484f58; font-size: 13px; line-height: 1.5; user-select: none; min-width: 40px; overflow: hidden; }
+            .code-content { flex: 1; padding: 16px; overflow: auto; font-size: 13px; line-height: 1.5; white-space: pre; color: #e6edf3; tab-size: 4; }
+            
+            /* 滚动条样式 */
+            ::-webkit-scrollbar { width: 10px; height: 10px; }
+            ::-webkit-scrollbar-track { background: #0d1117; }
+            ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
+            ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="status-bar">
+                <div class="url-display">Target: ${targetUrl}</div>
+                <div class="badge">Status: ${status}</div>
+            </div>
+            <div class="toolbar">
+                <span style="font-size: 13px; color: #8b949e;">预览格式 (模拟UA): </span>
+                <div class="btn-group">
+                    <a href="${baseUrl}&ua=default" style="${btnClass} ${currentUA==='default' || !currentUA ? activeBtn : inactiveBtn}">Base64 (默认)</a>
+                    <a href="${baseUrl}&ua=clash" style="${btnClass} ${currentUA==='clash' ? activeBtn : inactiveBtn}">Clash</a>
+                    <a href="${baseUrl}&ua=singbox" style="${btnClass} ${currentUA==='singbox' ? activeBtn : inactiveBtn}">Sing-box</a>
+                </div>
+                <span style="flex:1"></span>
+                <span style="font-size: 13px; color: #484f58;">大小: ${(content.length/1024).toFixed(2)} KB</span>
+            </div>
         </div>
-        <pre style="white-space: pre-wrap; word-break: break-all; color: #ccc;">${safeContent}</pre>
+        
+        <div class="editor-container">
+            <div class="code-content">${content.replace(/</g, '&lt;')}</div>
+        </div>
     </body>
     </html>`;
 }
