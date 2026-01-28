@@ -3,33 +3,29 @@ const http = require('http');
 const { URL } = require('url');
 
 /**
- * Vercel Proxy - Vercel Style Edition
- * 1. 默认 Clash 格式
- * 2. Vercel 极简黑白风格 UI
- * 3. 增加一键复制功能
+ * Vercel Proxy - 极简统一风格版
+ * 1. 纯白 Vercel 风格 (主页/预览页统一)
+ * 2. 完美适配移动端
+ * 3. 修复行号对齐问题
  */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
     const queryUrl = currentUrl.searchParams.get('url');
     
-    // 默认行为改为 'clash'
     const targetUA = currentUrl.searchParams.get('ua') || 'clash'; 
     
     let targetUrl = '';
 
-    // 优先使用 ?url= 参数
     if (queryUrl) {
         targetUrl = queryUrl;
     } else {
-        // 尝试从路径解析
         const path = currentUrl.pathname.replace(/^\/api\//, '').replace(/^\//, '');
         if (path && path !== 'favicon.ico') {
             targetUrl = path + currentUrl.search;
         }
     }
 
-    // 如果没有目标 URL，返回首页
     if (!targetUrl) {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -37,36 +33,28 @@ module.exports = (req, res) => {
         return;
     }
 
-    // 补全 https
     if (!targetUrl.startsWith('http')) {
         targetUrl = 'https://' + targetUrl;
     }
 
-    // --- 2. 智能 User-Agent 伪装逻辑 ---
+    // --- 2. 伪装逻辑 ---
     const clientUA = req.headers['user-agent'] || '';
-    
-    // 判断是否为浏览器访问
     const isBrowser = (clientUA.match(/(Mozilla|Chrome|Safari|Edge)/i) && 
                       !clientUA.match(/(Clash|Shadowrocket|Quantumult|Stash|V2Ray|Sing-Box)/i));
     
-    // 构造 Headers
     const proxyHeaders = {};
     proxyHeaders['Accept'] = '*/*';
     proxyHeaders['Connection'] = 'close';
 
-    // === 核心：身份伪装 ===
     if (isBrowser) {
-        // 浏览器预览模式：根据 selection 伪装
         if (targetUA === 'base64') {
-            proxyHeaders['User-Agent'] = '2rayNG/1.8.5'; // Base64
+            proxyHeaders['User-Agent'] = '2rayNG/1.8.5';
         } else if (targetUA === 'singbox') {
-            proxyHeaders['User-Agent'] = 'Sing-Box/1.0'; // JSON
+            proxyHeaders['User-Agent'] = 'Sing-Box/1.0';
         } else {
-            // 默认 (clash)
-            proxyHeaders['User-Agent'] = 'Clash/Meta';   // YAML
+            proxyHeaders['User-Agent'] = 'Clash/Meta';
         }
     } else {
-        // 工具直连模式：直接透传工具的 UA
         proxyHeaders['User-Agent'] = clientUA;
     }
 
@@ -78,7 +66,6 @@ module.exports = (req, res) => {
         rejectUnauthorized: false
     }, (proxyRes) => {
         
-        // --- 场景 A: 浏览器预览 (返回 Vercel 风格 HTML) ---
         if (isBrowser) {
             let rawData = [];
             proxyRes.on('data', (chunk) => { rawData.push(chunk); });
@@ -88,13 +75,11 @@ module.exports = (req, res) => {
                 
                 res.statusCode = 200;
                 res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                // 传入 host 用于生成完整的复制链接
                 res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA, req.headers.host));
             });
             return;
         }
 
-        // --- 场景 B: 工具直连 (透传数据) ---
         res.statusCode = proxyRes.statusCode;
         Object.keys(proxyRes.headers).forEach(key => {
             if (!['content-encoding', 'transfer-encoding', 'content-length'].includes(key)) {
@@ -113,115 +98,165 @@ module.exports = (req, res) => {
     proxyReq.end();
 };
 
-// --- Vercel 风格 CSS ---
-const vercelStyle = `
+// --- CSS 样式 (主页与预览页通用) ---
+const commonStyle = `
 <style>
     :root {
-        --geist-foreground: #000;
-        --geist-background: #fff;
-        --accents-1: #fafafa;
-        --accents-2: #eaeaea;
-        --accents-3: #999;
-        --accents-4: #888;
-        --accents-5: #666;
-        --accents-8: #000;
-        --success: #0070f3;
-        --error: #ee0000;
-        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        --bg: #fff;
+        --fg: #000;
+        --gray-50: #fafafa;
+        --gray-100: #eaeaea;
+        --gray-200: #999;
+        --gray-500: #666;
+        --gray-900: #111;
+        --success-bg: #d7f5fc;
+        --success-fg: #0070f3;
+        --error-bg: #fceceb;
+        --error-fg: #ee0000;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         --font-mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
+    
+    * { box-sizing: border-box; }
+    
     body {
         font-family: var(--font-sans);
-        background-color: var(--geist-background);
-        color: var(--geist-foreground);
+        background-color: var(--bg);
+        color: var(--fg);
         margin: 0;
+        min-height: 100vh;
         display: flex;
         flex-direction: column;
-        min-height: 100vh;
-        -webkit-font-smoothing: antialiased;
     }
+
     .container {
-        max-width: 960px;
+        max-width: 1000px;
         margin: 0 auto;
-        padding: 0 24px;
+        padding: 0 20px;
         width: 100%;
-        box-sizing: border-box;
     }
-    .card {
-        border: 1px solid var(--accents-2);
-        border-radius: 8px;
-        padding: 24px;
-        margin-top: 40px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        transition: box-shadow 0.2s;
-    }
-    .card:hover {
-        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-    }
-    h1, h2 { letter-spacing: -0.05em; margin-top: 0; }
-    h1 { font-size: 32px; font-weight: 700; }
-    p { color: var(--accents-5); line-height: 1.6; }
-    
-    input {
-        width: 100%;
-        padding: 12px 16px;
-        font-size: 16px;
-        border: 1px solid var(--accents-2);
-        border-radius: 6px;
-        margin: 16px 0;
-        box-sizing: border-box;
-        transition: border-color 0.15s ease;
-    }
-    input:focus { outline: none; border-color: var(--accents-8); }
-    
+
+    /* 按钮通用样式 */
     .btn {
-        background: var(--geist-foreground);
-        color: var(--geist-background);
-        border: 1px solid var(--geist-foreground);
-        padding: 0 24px;
-        height: 40px;
-        border-radius: 6px;
-        font-weight: 500;
-        font-size: 14px;
-        cursor: pointer;
-        transition: all 0.2s ease;
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        height: 36px;
+        padding: 0 16px;
+        font-size: 13px;
+        font-weight: 500;
+        border-radius: 6px;
+        border: 1px solid var(--gray-100);
+        background: #fff;
+        color: var(--gray-500);
+        cursor: pointer;
+        transition: all 0.15s ease;
         text-decoration: none;
+        white-space: nowrap;
     }
-    .btn:hover { background: transparent; color: var(--geist-foreground); }
-    .btn-secondary {
-        background: transparent;
-        color: var(--accents-5);
-        border: 1px solid var(--accents-2);
-    }
-    .btn-secondary:hover { color: var(--geist-foreground); border-color: var(--geist-foreground); }
-    .btn-active {
-        background: var(--geist-foreground);
-        color: var(--geist-background);
-        border-color: var(--geist-foreground);
-    }
-    .btn-active:hover { color: var(--geist-background); background: #333; }
+    .btn:hover { color: var(--fg); border-color: var(--fg); }
+    .btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .btn-primary:hover { background: #333; color: #fff; }
+    .btn-active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 
-    .header { border-bottom: 1px solid var(--accents-2); padding: 16px 0; background: rgba(255,255,255,0.8); backdrop-filter: blur(5px); position: sticky; top: 0; z-index: 10; }
-    .header-content { display: flex; justify-content: space-between; align-items: center; }
-    .logo { font-weight: 800; font-size: 20px; display: flex; align-items: center; gap: 8px; }
-    .status-badge { font-size: 12px; padding: 4px 8px; border-radius: 100px; font-weight: 600; }
-    .status-200 { background: #d7f5fc; color: #0070f3; }
-    .status-error { background: #fceceb; color: #ee0000; }
+    /* 输入框 */
+    input {
+        width: 100%;
+        height: 48px;
+        padding: 0 16px;
+        font-size: 16px;
+        border: 1px solid var(--gray-100);
+        border-radius: 6px;
+        transition: border-color 0.15s;
+        margin-bottom: 16px;
+    }
+    input:focus { outline: none; border-color: var(--fg); }
 
-    .editor-wrapper { flex: 1; display: flex; background: #000; color: #fff; overflow: hidden; }
-    .line-numbers { padding: 20px 16px; text-align: right; color: #444; font-family: var(--font-mono); font-size: 13px; border-right: 1px solid #333; user-select: none; }
-    .code-area { flex: 1; padding: 20px; overflow: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; white-space: pre; }
+    /* 预览页特定样式 */
+    .preview-header {
+        position: sticky;
+        top: 0;
+        background: rgba(255,255,255,0.9);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--gray-100);
+        z-index: 10;
+        padding: 16px 0;
+    }
     
-    .feature-list { list-style: none; padding: 0; margin: 20px 0; }
-    .feature-list li { display: flex; align-items: center; margin-bottom: 12px; color: var(--accents-5); font-size: 14px; }
-    .feature-list li::before { content: "✓"; margin-right: 10px; color: var(--geist-foreground); font-weight: bold; }
+    .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap; /* 手机端换行 */
+    }
+
+    .title-group {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0; /* 允许截断 */
+    }
+
+    .logo-text { font-weight: 700; font-size: 16px; letter-spacing: -0.5px; }
+    
+    .url-text {
+        color: var(--gray-500);
+        font-size: 13px;
+        font-family: var(--font-mono);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 300px;
+    }
+
+    .toolbar {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto; /* 手机端横向滚动 */
+        padding-bottom: 2px; /* 滚动条间距 */
+    }
+
+    .code-wrapper {
+        flex: 1;
+        display: flex;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 20px;
+        padding-top: 20px;
+        overflow-x: auto; /* 代码过长横向滚动 */
+    }
+
+    /* 行号与代码对齐的关键 */
+    .line-nums {
+        text-align: right;
+        padding-right: 16px;
+        color: var(--gray-200);
+        user-select: none;
+        border-right: 1px solid var(--gray-100);
+        margin-right: 16px;
+        min-width: 40px;
+    }
+    .code-body {
+        color: var(--fg);
+        white-space: pre;
+        tab-size: 2;
+    }
+
+    /* 移动端适配 */
+    @media (max-width: 600px) {
+        .url-text { display: none; } /* 手机端隐藏过长URL */
+        .header-row { flex-direction: column; align-items: stretch; }
+        .title-group { justify-content: space-between; }
+        .toolbar { padding-top: 12px; }
+        .btn { flex: 1; }
+        .line-nums { min-width: 30px; font-size: 11px; }
+        .code-body { font-size: 11px; }
+    }
 </style>
 `;
 
-// --- 主页 HTML (Vercel 风格) ---
+// --- 主页 HTML ---
 function renderHome() {
     return `
     <!DOCTYPE html>
@@ -230,39 +265,44 @@ function renderHome() {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Vercel Proxy</title>
-        ${vercelStyle}
+        ${commonStyle}
     </head>
     <body>
-        <div class="container" style="display: flex; flex-direction: column; justify-content: center; min-height: 80vh; max-width: 500px;">
-            <div class="card">
-                <h1>Vercel Proxy</h1>
-                <p>一个极简、高速的订阅代理服务。</p>
-                
-                <ul class="feature-list">
-                    <li>解决订阅链接连接被墙问题</li>
-                    <li>支持浏览器预览 (自动识别格式)</li>
-                    <li>增加一键复制订阅链接功能</li>
-                </ul>
+        <div class="container" style="max-width: 600px; margin-top: 12vh;">
+            <div style="border: 1px solid var(--gray-100); border-radius: 12px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                <div style="margin-bottom: 24px;">
+                    <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 12px 0;">Vercel Proxy</h1>
+                    <ul style="padding-left: 20px; color: var(--gray-500); font-size: 14px; margin: 0; line-height: 1.6;">
+                        <li>解决订阅链接连接被墙问题</li>
+                        <li>支持浏览器预览</li>
+                    </ul>
+                </div>
 
                 <form onsubmit="event.preventDefault(); window.location.href='?url='+encodeURIComponent(this.u.value)">
-                    <input name="u" placeholder="在此粘贴原始订阅链接..." required autofocus>
-                    <button type="submit" class="btn" style="width: 100%;">生成代理链接</button>
+                    <input name="u" placeholder="在此粘贴原始订阅链接..." required autofocus autocomplete="off">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; height: 44px; font-size: 14px;">生成并预览</button>
                 </form>
             </div>
-            <p style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--accents-3);">Powered by Vercel Edge Network</p>
+            <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200);">
+                Powered by Vercel Edge Network
+            </div>
         </div>
     </body>
     </html>`;
 }
 
-// --- 预览页 HTML (Vercel 风格) ---
+// --- 预览页 HTML ---
 function renderDashboard(targetUrl, status, content, currentUA, host) {
     const isOk = status >= 200 && status < 300;
-    
-    // 生成干净的代理链接 (不带 UA 参数，让工具自动处理)
     const cleanProxyUrl = `https://${host}/api?url=${encodeURIComponent(targetUrl)}`;
-    
     const baseUrl = `?url=${encodeURIComponent(targetUrl)}`;
+    
+    // 计算行数
+    const lines = content.split('\n');
+    const lineNumbers = Array.from({length: lines.length}, (_, i) => i + 1).join('\n');
+
+    // 状态徽章样式
+    const badgeStyle = `padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 600; background: ${isOk ? 'var(--success-bg)' : 'var(--error-bg)'}; color: ${isOk ? 'var(--success-fg)' : 'var(--error-fg)'}`;
 
     return `
     <!DOCTYPE html>
@@ -270,20 +310,20 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Preview - ${status}</title>
-        ${vercelStyle}
+        <title>Preview</title>
+        ${commonStyle}
         <script>
             function copyLink() {
                 const url = "${cleanProxyUrl}";
                 navigator.clipboard.writeText(url).then(() => {
                     const btn = document.getElementById('copyBtn');
                     const originalText = btn.innerText;
-                    btn.innerText = '已复制 ✓';
-                    btn.style.background = '#000';
-                    btn.style.color = '#fff';
+                    btn.innerText = '已复制';
+                    btn.style.borderColor = '#000';
+                    btn.style.color = '#000';
                     setTimeout(() => {
                         btn.innerText = originalText;
-                        btn.style.background = '';
+                        btn.style.borderColor = '';
                         btn.style.color = '';
                     }, 2000);
                 });
@@ -291,32 +331,30 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
         </script>
     </head>
     <body>
-        <div class="header">
-            <div class="container header-content">
-                <div class="logo">
-                    <svg height="20" viewBox="0 0 116 100" fill="#000"><path fill-rule="evenodd" clip-rule="evenodd" d="M57.5 0L115 100H0L57.5 0Z" /></svg>
-                    <span style="margin-left: 12px;">Proxy Preview</span>
-                    <span class="status-badge ${isOk ? 'status-200' : 'status-error'}" style="margin-left: 10px;">${status}</span>
+        <header class="preview-header">
+            <div class="container header-row">
+                <!-- 左侧：标题与状态 -->
+                <div class="title-group">
+                    <div class="logo-text">Preview</div>
+                    <span style="${badgeStyle}">${status}</span>
+                    <span class="url-text" title="${targetUrl}">${targetUrl}</span>
                 </div>
-                <div style="display: flex; gap: 8px;">
-                    <a href="${baseUrl}&ua=clash" class="btn btn-secondary ${currentUA==='clash'?'btn-active':''}" style="height: 32px; font-size: 12px;">Clash</a>
-                    <a href="${baseUrl}&ua=singbox" class="btn btn-secondary ${currentUA==='singbox'?'btn-active':''}" style="height: 32px; font-size: 12px;">Sing-box</a>
-                    <a href="${baseUrl}&ua=base64" class="btn btn-secondary ${currentUA==='base64'?'btn-active':''}" style="height: 32px; font-size: 12px;">Base64</a>
-                    <button id="copyBtn" onclick="copyLink()" class="btn" style="height: 32px; font-size: 12px; margin-left: 8px;">复制链接</button>
+                
+                <!-- 右侧：工具栏 -->
+                <div class="toolbar">
+                    <a href="${baseUrl}&ua=clash" class="btn ${currentUA==='clash'?'btn-active':''}">Clash</a>
+                    <a href="${baseUrl}&ua=singbox" class="btn ${currentUA==='singbox'?'btn-active':''}">Sing-box</a>
+                    <a href="${baseUrl}&ua=base64" class="btn ${currentUA==='base64'?'btn-active':''}">Base64</a>
+                    <button id="copyBtn" onclick="copyLink()" class="btn" style="margin-left: 8px;">复制链接</button>
                 </div>
             </div>
-            <div class="container" style="margin-top: 12px; font-size: 12px; color: var(--accents-5); display: flex; justify-content: space-between;">
-                <span style="font-family: var(--font-mono); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;">${targetUrl}</span>
-                <span>Size: ${(content.length/1024).toFixed(2)} KB</span>
+        </header>
+
+        <div class="container" style="flex: 1; display: flex; overflow: hidden; margin-bottom: 20px;">
+            <div class="code-wrapper">
+                <div class="line-nums">${lineNumbers}</div>
+                <div class="code-body">${content.replace(/</g, '&lt;')}</div>
             </div>
-        </div>
-        
-        <div class="editor-wrapper">
-            <div class="line-numbers">
-                ${Array.from({length: Math.min(100, content.split('\n').length)}, (_, i) => i + 1).join('\n')}
-                ${content.split('\n').length > 100 ? '...' : ''}
-            </div>
-            <div class="code-area">${content.replace(/</g, '&lt;')}</div>
         </div>
     </body>
     </html>`;
