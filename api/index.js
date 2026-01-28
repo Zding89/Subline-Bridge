@@ -60,20 +60,65 @@ module.exports = (req, res) => {
         rejectUnauthorized: false
     }, (proxyRes) => {
         
+        // === 安全检查模块 (Security Check) ===
+        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+        const contentLen = parseInt(proxyRes.headers['content-length'] || '0');
+        const MAX_SIZE = 3 * 1024 * 1024; // 限制 3MB
+
+        // A. 黑名单类型拦截
+        // 禁止视频、音频、压缩包、PDF、安装包等非订阅格式
+        const blockTypes = [
+            'video/', 'audio/', 'image/', 
+            'application/zip', 'application/x-rar', 'application/x-7z-compressed',
+            'application/pdf', 'application/x-msdownload', 'application/vnd.android.package-archive'
+        ];
+        
+        if (blockTypes.some(t => contentType.includes(t))) {
+            proxyRes.destroy();
+            res.statusCode = 403;
+            res.end(`Error: Content-Type (${contentType}) not allowed.`);
+            return;
+        }
+
+        // B. 初始大小拦截 (如果源站返回了 Content-Length)
+        if (contentLen > MAX_SIZE) {
+            proxyRes.destroy();
+            res.statusCode = 413;
+            res.end(`Error: Resource too large (>3MB).`);
+            return;
+        }
+
+        // --- 4. 响应处理 ---
+        let currentSize = 0;
+
+        // 场景 A: 浏览器预览
         if (isBrowser) {
             let rawData = [];
-            proxyRes.on('data', (chunk) => { rawData.push(chunk); });
+            proxyRes.on('data', (chunk) => { 
+                currentSize += chunk.length;
+                // C. 流量熔断：下载过程中超过 3MB 直接掐断
+                if (currentSize > MAX_SIZE) {
+                    proxyRes.destroy();
+                    res.end('Error: Preview truncated (Data > 3MB).');
+                } else {
+                    rawData.push(chunk); 
+                }
+            });
+            
             proxyRes.on('end', () => {
-                const fullBuffer = Buffer.concat(rawData);
-                const content = fullBuffer.toString('utf8');
-                
-                res.statusCode = 200;
-                res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA, req.headers.host));
+                if (currentSize <= MAX_SIZE) {
+                    const fullBuffer = Buffer.concat(rawData);
+                    const content = fullBuffer.toString('utf8');
+                    res.statusCode = 200;
+                    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                    res.end(renderDashboard(targetUrl, proxyRes.statusCode, content, targetUA, req.headers.host));
+                }
             });
             return;
         }
 
+        // 场景 B: 工具直连
+        // 注意：为了监控流量，这里不能用 pipe，必须手动转发
         res.statusCode = proxyRes.statusCode;
         Object.keys(proxyRes.headers).forEach(key => {
             if (!['content-encoding', 'transfer-encoding', 'content-length'].includes(key)) {
@@ -81,7 +126,21 @@ module.exports = (req, res) => {
             }
         });
         res.setHeader('Access-Control-Allow-Origin', '*');
-        proxyRes.pipe(res);
+
+        proxyRes.on('data', (chunk) => {
+            currentSize += chunk.length;
+            // C. 流量熔断
+            if (currentSize > MAX_SIZE) {
+                proxyRes.destroy();
+                res.end(); // 强制结束响应，不报错，工具端会显示下载失败或不完整
+            } else {
+                res.write(chunk);
+            }
+        });
+
+        proxyRes.on('end', () => {
+            res.end();
+        });
     });
 
     proxyReq.on('error', (e) => {
