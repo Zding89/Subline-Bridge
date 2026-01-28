@@ -2,13 +2,6 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
-/**
- * Vercel Proxy - 极简统一风格版
- * 1. 纯白 Vercel 风格 (主页/预览页统一)
- * 2. 完美适配移动端
- * 3. 修复行号对齐问题 (强制换行)
- * 4. 修改底部版权信息
- */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -128,6 +121,7 @@ const commonStyle = `
         min-height: 100vh;
         display: flex;
         flex-direction: column;
+        overflow-x: hidden; /* 防止移动端横向溢出 */
     }
 
     .container {
@@ -182,6 +176,7 @@ const commonStyle = `
         border-bottom: 1px solid var(--gray-100);
         z-index: 10;
         padding: 16px 0;
+        width: 100%; /* 确保头部宽度 */
     }
     
     .header-row {
@@ -216,6 +211,7 @@ const commonStyle = `
         gap: 8px;
         overflow-x: auto; /* 手机端横向滚动 */
         padding-bottom: 2px; /* 滚动条间距 */
+        max-width: 100%; /* 限制最大宽度，防止撑开页面 */
     }
 
     .code-wrapper {
@@ -286,8 +282,13 @@ function renderHome() {
                     <button type="submit" class="btn btn-primary" style="width: 100%; height: 44px; font-size: 14px;">生成并预览</button>
                 </form>
             </div>
-            <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200);">
-                Powered by Zding
+            <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>Powered by Zding</span>
+                <a href="https://github.com/Zding89/Subline-Bridge" target="_blank" style="color: inherit; display: flex; text-decoration: none; align-items: center;" title="View on GitHub">
+                    <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                </a>
             </div>
         </div>
     </body>
