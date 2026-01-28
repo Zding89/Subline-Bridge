@@ -127,7 +127,7 @@ function renderDashboard(target, status, content, isBrowser) {
     const color = isOk ? 'green' : 'red';
     
     // 简单的转义防止 XSS
-    const safeContent = content.replace(/</g, '&lt;').substring(0, 3000);
+    const safeContent = content.replace(/</g, '&lt;').substring(0, 3000000);
 
     return `
     <html>
