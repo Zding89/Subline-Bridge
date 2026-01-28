@@ -6,7 +6,8 @@ const { URL } = require('url');
  * Vercel Proxy - 极简统一风格版
  * 1. 纯白 Vercel 风格 (主页/预览页统一)
  * 2. 完美适配移动端
- * 3. 修复行号对齐问题
+ * 3. 修复行号对齐问题 (强制换行)
+ * 4. 修改底部版权信息
  */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
@@ -236,6 +237,8 @@ const commonStyle = `
         border-right: 1px solid var(--gray-100);
         margin-right: 16px;
         min-width: 40px;
+        /* 修复行号挤在一起的关键 */
+        white-space: pre; 
     }
     .code-body {
         color: var(--fg);
@@ -284,7 +287,7 @@ function renderHome() {
                 </form>
             </div>
             <div style="text-align: center; margin-top: 24px; font-size: 12px; color: var(--gray-200);">
-                Powered by Vercel Edge Network
+                Powered by Zding
             </div>
         </div>
     </body>
