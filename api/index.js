@@ -2,6 +2,13 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
+/**
+ * Vercel Proxy - 极简统一风格版
+ * 1. 纯白 Vercel 风格
+ * 2. 移动端布局优化 (按钮自动换行，防止溢出)
+ * 3. 增强复制功能兼容性
+ * 4. 底部 GitHub 跳转
+ */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -121,7 +128,7 @@ const commonStyle = `
         min-height: 100vh;
         display: flex;
         flex-direction: column;
-        overflow-x: hidden; /* 防止移动端横向溢出 */
+        overflow-x: hidden;
     }
 
     .container {
@@ -148,6 +155,8 @@ const commonStyle = `
         transition: all 0.15s ease;
         text-decoration: none;
         white-space: nowrap;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent; /* 移除移动端点击高亮 */
     }
     .btn:hover { color: var(--fg); border-color: var(--fg); }
     .btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
@@ -171,12 +180,12 @@ const commonStyle = `
     .preview-header {
         position: sticky;
         top: 0;
-        background: rgba(255,255,255,0.9);
+        background: rgba(255,255,255,0.95);
         backdrop-filter: blur(8px);
         border-bottom: 1px solid var(--gray-100);
         z-index: 10;
         padding: 16px 0;
-        width: 100%; /* 确保头部宽度 */
+        width: 100%;
     }
     
     .header-row {
@@ -184,14 +193,14 @@ const commonStyle = `
         justify-content: space-between;
         align-items: center;
         gap: 12px;
-        flex-wrap: wrap; /* 手机端换行 */
+        flex-wrap: wrap; /* 允许换行 */
     }
 
     .title-group {
         display: flex;
         align-items: center;
         gap: 12px;
-        min-width: 0; /* 允许截断 */
+        min-width: 0;
     }
 
     .logo-text { font-weight: 700; font-size: 16px; letter-spacing: -0.5px; }
@@ -209,9 +218,9 @@ const commonStyle = `
     .toolbar {
         display: flex;
         gap: 8px;
-        overflow-x: auto; /* 手机端横向滚动 */
-        padding-bottom: 2px; /* 滚动条间距 */
-        max-width: 100%; /* 限制最大宽度，防止撑开页面 */
+        flex-wrap: wrap; /* 关键：移动端自动换行 */
+        align-items: center;
+        /* 移除之前的 overflow-x: auto */
     }
 
     .code-wrapper {
@@ -221,10 +230,9 @@ const commonStyle = `
         font-size: 13px;
         line-height: 20px;
         padding-top: 20px;
-        overflow-x: auto; /* 代码过长横向滚动 */
+        overflow-x: auto;
     }
 
-    /* 行号与代码对齐的关键 */
     .line-nums {
         text-align: right;
         padding-right: 16px;
@@ -233,7 +241,6 @@ const commonStyle = `
         border-right: 1px solid var(--gray-100);
         margin-right: 16px;
         min-width: 40px;
-        /* 修复行号挤在一起的关键 */
         white-space: pre; 
     }
     .code-body {
@@ -244,11 +251,12 @@ const commonStyle = `
 
     /* 移动端适配 */
     @media (max-width: 600px) {
-        .url-text { display: none; } /* 手机端隐藏过长URL */
-        .header-row { flex-direction: column; align-items: stretch; }
+        .url-text { display: none; } 
+        .header-row { flex-direction: column; align-items: stretch; gap: 16px; }
         .title-group { justify-content: space-between; }
-        .toolbar { padding-top: 12px; }
-        .btn { flex: 1; }
+        /* 移动端按钮弹性布局，使其易于点击 */
+        .toolbar { width: 100%; }
+        .btn { flex: 1 0 auto; text-align: center; } /* 按钮自适应宽度，必要时换行 */
         .line-nums { min-width: 30px; font-size: 11px; }
         .code-body { font-size: 11px; }
     }
@@ -319,17 +327,45 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
         <script>
             function copyLink() {
                 const url = "${cleanProxyUrl}";
-                navigator.clipboard.writeText(url).then(() => {
-                    const btn = document.getElementById('copyBtn');
+                const btn = document.getElementById('copyBtn');
+                
+                // 增强型复制逻辑：兼容移动端 WebView
+                const copyToClipboard = (text) => {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        return navigator.clipboard.writeText(text);
+                    }
+                    return new Promise((resolve, reject) => {
+                        try {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = text;
+                            textArea.style.position = "fixed";
+                            textArea.style.left = "-9999px";
+                            document.body.appendChild(textArea);
+                            textArea.focus();
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                };
+
+                copyToClipboard(url).then(() => {
                     const originalText = btn.innerText;
                     btn.innerText = '已复制';
                     btn.style.borderColor = '#000';
                     btn.style.color = '#000';
+                    btn.style.background = '#f0f0f0';
                     setTimeout(() => {
                         btn.innerText = originalText;
                         btn.style.borderColor = '';
                         btn.style.color = '';
+                        btn.style.background = '';
                     }, 2000);
+                }).catch(err => {
+                    alert('复制失败，请手动复制浏览器地址栏');
                 });
             }
         </script>
@@ -349,7 +385,8 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
                     <a href="${baseUrl}&ua=clash" class="btn ${currentUA==='clash'?'btn-active':''}">Clash</a>
                     <a href="${baseUrl}&ua=singbox" class="btn ${currentUA==='singbox'?'btn-active':''}">Sing-box</a>
                     <a href="${baseUrl}&ua=base64" class="btn ${currentUA==='base64'?'btn-active':''}">Base64</a>
-                    <button id="copyBtn" onclick="copyLink()" class="btn" style="margin-left: 8px;">复制链接</button>
+                    <!-- 移除内联样式，依靠 CSS flex gap -->
+                    <button id="copyBtn" onclick="copyLink()" class="btn">复制链接</button>
                 </div>
             </div>
         </header>
