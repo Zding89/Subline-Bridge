@@ -2,6 +2,13 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
+/**
+ * Subline-Bridge
+ * 1. 改名为 Subline-Bridge
+ * 2. 主页垂直居中，标题居中
+ * 3. 主页说明移动到底部
+ * 4. 预览页 URL 自动换行全显示
+ */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -225,16 +232,24 @@ const commonStyle = `
     .header-row {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start; /* 顶部对齐，适应换行内容 */
         gap: 12px;
         flex-wrap: wrap;
     }
 
     .title-group {
         display: flex;
+        flex-direction: column; /* 改为垂直排列，适应长URL */
+        align-items: flex-start;
+        gap: 4px;
+        min-width: 0;
+        flex: 1; /* 占据剩余空间 */
+    }
+
+    .title-row {
+        display: flex;
         align-items: center;
         gap: 8px;
-        min-width: 0;
     }
 
     .logo-text { font-weight: 700; font-size: 15px; letter-spacing: -0.5px; }
@@ -243,10 +258,9 @@ const commonStyle = `
         color: var(--gray-500);
         font-size: 12px;
         font-family: var(--font-mono);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 200px;
+        /* 移除截断，改为换行 */
+        word-break: break-all;
+        line-height: 1.4;
     }
 
     .toolbar {
@@ -254,6 +268,7 @@ const commonStyle = `
         gap: 6px; /* 减小间距 */
         flex-wrap: wrap;
         align-items: center;
+        flex-shrink: 0; /* 防止被挤压 */
     }
 
     .code-wrapper {
@@ -284,9 +299,8 @@ const commonStyle = `
 
     /* 移动端适配 */
     @media (max-width: 600px) {
-        .url-text { display: none; } 
         .header-row { flex-direction: column; align-items: stretch; gap: 12px; }
-        .title-group { justify-content: space-between; }
+        .title-group { width: 100%; } /* 手机端占满宽度 */
         .toolbar { width: 100%; justify-content: space-between; }
         .btn { padding: 0 8px; font-size: 12px; } /* 进一步缩小移动端按钮 */
         .line-nums { min-width: 30px; font-size: 11px; }
@@ -374,12 +388,9 @@ function renderHome() {
         <div class="center-wrapper">
             <div class="container" style="max-width: 600px;">
                 <div style="border: 1px solid var(--gray-100); border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-                    <div style="margin-bottom: 24px;">
-                        <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 10px 0;">Subline-Bridge</h1>
-                        <ul style="padding-left: 20px; color: var(--gray-500); font-size: 13px; margin: 0; line-height: 1.6;">
-                            <li>解决订阅链接连接被墙问题</li>
-                            <li>支持浏览器预览与转换</li>
-                        </ul>
+                    <!-- 标题居中 -->
+                    <div style="margin-bottom: 24px; text-align: center;">
+                        <h1 style="font-size: 22px; font-weight: 700; margin: 0;">Subline-Bridge</h1>
                     </div>
 
                     <form onsubmit="event.preventDefault(); generateLink()">
@@ -395,6 +406,14 @@ function renderHome() {
                             <button id="copyHomeBtn" type="button" class="btn" onclick="copyHomeLink()">复制</button>
                             <button id="previewBtn" type="button" class="btn">预览</button>
                         </div>
+                    </div>
+
+                    <!-- 说明列表移动到底部 -->
+                    <div style="margin-top: 32px; padding-top: 20px; border-top: 1px dashed var(--gray-100);">
+                        <ul style="padding-left: 20px; color: var(--gray-500); font-size: 13px; margin: 0; line-height: 1.6;">
+                            <li>解决订阅链接连接被墙问题</li>
+                            <li>支持浏览器预览与转换</li>
+                        </ul>
                     </div>
                 </div>
                 
@@ -480,8 +499,11 @@ function renderDashboard(targetUrl, status, content, currentUA, host) {
             <div class="container header-row">
                 <!-- 左侧：标题与状态 -->
                 <div class="title-group">
-                    <div class="logo-text">Preview</div>
-                    <span style="${badgeStyle}">${status}</span>
+                    <div class="title-row">
+                        <div class="logo-text">Preview</div>
+                        <span style="${badgeStyle}">${status}</span>
+                    </div>
+                    <!-- URL 自动换行 -->
                     <span class="url-text" title="${targetUrl}">${targetUrl}</span>
                 </div>
                 
