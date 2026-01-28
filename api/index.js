@@ -2,13 +2,6 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
-/**
- * Subline-Bridge
- * 1. 改名为 Subline-Bridge
- * 2. 主页垂直居中，标题居中
- * 3. 主页说明移动到底部
- * 4. 预览页 URL 自动换行全显示
- */
 module.exports = (req, res) => {
     // --- 1. 参数解析 ---
     const currentUrl = new URL(req.url, `http://${req.headers.host}`);
