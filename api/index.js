@@ -66,7 +66,6 @@ module.exports = (req, res) => {
         const MAX_SIZE = 3 * 1024 * 1024; // 限制 3MB
 
         // A. 黑名单类型拦截
-        // 禁止视频、音频、压缩包、PDF、安装包等非订阅格式
         const blockTypes = [
             'video/', 'audio/', 'image/', 
             'application/zip', 'application/x-rar', 'application/x-7z-compressed',
@@ -80,7 +79,7 @@ module.exports = (req, res) => {
             return;
         }
 
-        // B. 初始大小拦截 (如果源站返回了 Content-Length)
+        // B. 初始大小拦截
         if (contentLen > MAX_SIZE) {
             proxyRes.destroy();
             res.statusCode = 413;
@@ -96,7 +95,6 @@ module.exports = (req, res) => {
             let rawData = [];
             proxyRes.on('data', (chunk) => { 
                 currentSize += chunk.length;
-                // C. 流量熔断：下载过程中超过 3MB 直接掐断
                 if (currentSize > MAX_SIZE) {
                     proxyRes.destroy();
                     res.end('Error: Preview truncated (Data > 3MB).');
@@ -118,7 +116,6 @@ module.exports = (req, res) => {
         }
 
         // 场景 B: 工具直连
-        // 注意：为了监控流量，这里不能用 pipe，必须手动转发
         res.statusCode = proxyRes.statusCode;
         Object.keys(proxyRes.headers).forEach(key => {
             if (!['content-encoding', 'transfer-encoding', 'content-length'].includes(key)) {
@@ -129,10 +126,9 @@ module.exports = (req, res) => {
 
         proxyRes.on('data', (chunk) => {
             currentSize += chunk.length;
-            // C. 流量熔断
             if (currentSize > MAX_SIZE) {
                 proxyRes.destroy();
-                res.end(); // 强制结束响应，不报错，工具端会显示下载失败或不完整
+                res.end(); 
             } else {
                 res.write(chunk);
             }
@@ -143,9 +139,31 @@ module.exports = (req, res) => {
         });
     });
 
+    // === 5. 错误处理优化 ===
     proxyReq.on('error', (e) => {
         res.statusCode = 502;
-        res.end(`Proxy Error: ${e.message}`);
+        
+        let errorTitle = '代理请求失败';
+        let errorDetail = e.message;
+
+        // 常见错误翻译
+        if (e.code === 'ENOTFOUND') {
+            errorTitle = '域名解析失败 (ENOTFOUND)';
+            errorDetail = `无法找到域名 "${targetUrl}" 的 IP 地址。\n请检查：\n1. 订阅链接是否有拼写错误\n2. 机场是否更换了新域名（旧域名已失效）`;
+        } else if (e.code === 'ETIMEDOUT') {
+            errorTitle = '连接超时 (ETIMEDOUT)';
+            errorDetail = '目标服务器响应过慢，Vercel 无法连接。';
+        } else if (e.code === 'ECONNREFUSED') {
+            errorTitle = '拒绝连接 (ECONNREFUSED)';
+            errorDetail = '目标服务器拒绝了请求，可能是端口错误或服务未启动。';
+        } else if (e.code === 'HPE_INVALID_CONSTANT') {
+            errorTitle = '协议解析错误';
+            errorDetail = '目标服务器返回了不标准的 HTTP 响应，可能是通过 HTTP 端口发送了 HTTPS 请求。';
+        }
+
+        // 返回纯文本，方便工具查看
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.end(`[Subline-Bridge Error]\n\n${errorTitle}\n----------------\n${errorDetail}`);
     });
 
     proxyReq.end();
